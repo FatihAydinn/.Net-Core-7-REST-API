@@ -1,0 +1,300 @@
+ASP.NET Core Web API türünde proje oluşturulur.
+
+Swagger: Dışarıya açılmak istenilen metotların hazır şablonu.
+
+Veritabanında tablo oluşturmak için;
+-appsettings.json içerisinde ConncetionString ile veritabanı bağlantısı yapılır.
+
+	"ConnectionStrings": {
+	"DefaultConnection": "Server= -veritabanı bağlantısı- ;Database= -veritabanı isimlendirme- ;Trusted_Connection=True;MultipleActiveResultSets=True"
+  }
+
+Veritabanında yapılacak işlemler için;
+-Data adında bir klasör ve içerisine ApplicationDbContext adında bir class oluşturulur.
+-Eklenecek kodların işe yaraması için CoreTools ,CoreSqlServer ,CoreTools ve CodeGeneration.Design kütüphanaleri indirilmeli.
+
+	public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options): base (options) { }
+
+-base ifadesi türediği classın (DbContext) constructoruna parametere gönderir.
+
+Yapılmış olan değişikliklerin program tarafından algılanması için Program.cs içerisine eklenecek kodlar;
+(builder.Services.AddSwaggerGen altına)
+
+	var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+	builder.Services.AddDbContext<ApplicationDbContext>(options => options.UseSqlServer(connectionString));
+
+Yapılanları veritabanına yansıtmak için Nuget Manager Console içerisine;
+- add-migration DatabaseInit
+- update-database
+
+Veritabanına tablo oluşturmak için Models adında klasör oluşturup içerisine Product isminde bir class tanımlanır;
+
+	[Key] //anahtar değer
+        public int ID { get; set; }
+
+        [Required] //boş geçilemez
+        public string Name { get; set; }
+
+Tablonun oluşabilmesi için ApplicationDbContext içerisine DbSet ile tablo oluşumu gerçekleştirilir;
+
+        public DbSet<Product> Product { get; set; }
+
+Tablo ve öğeleri eklendikten sonra Console aracılığı ile değişiklikler veritabanına yansıtılır;
+- add-migration ProductTablosuInit
+- update-database
+
+Denemelerde kullanıması için veritabanından mauel şekilde veri girilir.
+
+CRUD işlemlerini eklemek için Controller eklenir;
+New Controller > API > API Controller with read/write actions
+
+        private readonly ApplicationDbContext _context;
+
+        //Constructor Injection
+        public ProductController(ApplicationDbContext context)
+        {
+            _context = context;
+        }
+
+Controller tarafından nesneye ihtiyaç olduğu zaman bu nesne DbContext ile oluşan nesne ile beraber ayağa kaldırılır. (Construstor Injection)
+
+-------------------------------------------------------------------------------------------------------------------------------------------------
+					~ C - R - U - D İşlemleri ~
+-------------------------------------------------------------------------------------------------------------------------------------------------
+
+Listeleme işlemi için;
+
+        [HttpGet]
+        public async Task<ActionResult<IEnumerable<Product>>> GetProducts()
+        {
+            return await _context.Product.ToListAsync();
+        }
+
+-Veritabanında bulunan Product tablosnunun tüm verilerini Json formatında listeyemeye yarar.
+
+-------------------------------------------------------------------------------------------------------------------------------------------------
+
+ID bazlı veri getirme işlemi için;
+
+        [HttpGet("{id}")]
+        public async Task<ActionResult<IEnumerable<Product>>> GetProduct(int id)
+        {
+            var product = await _context.Product.FindAsync(id);
+            return Ok(product);
+        }
+
+-------------------------------------------------------------------------------------------------------------------------------------------------
+
+Mevcut veriyi güncellemek için;
+
+        [HttpPut]
+        public async Task<ActionResult<IEnumerable<Product>>> UpdateProduct(Product product)
+        {
+            _context.Entry(product).State = EntityState.Modified;
+            try
+            {
+                await _context.SaveChangesAsync();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.ToString());
+            }
+            return Ok();
+        }
+
+-------------------------------------------------------------------------------------------------------------------------------------------------
+
+ID bazlı veri silmek için;
+
+	[HttpDelete("{id}")]
+        public async Task<ActionResult<IEnumerable<Product>>> DeleteProduct(int id)
+        {
+            Product product =  await _context.Product.FindAsync(id);
+            _context.Product.Remove(product);
+            await _context.SaveChangesAsync();
+            return Ok();
+        }
+
+-------------------------------------------------------------------------------------------------------------------------------------------------
+
+Yeni bir veri oluşturmak için;
+
+	[HttpPost]
+        public async Task<ActionResult<IEnumerable<Product>>> CreateProduct(Product product)
+        {
+            try
+            {
+                _context.Product.Add(product);
+                await _context.SaveChangesAsync();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.ToString());
+            }
+            return Ok(product);
+        }
+-------------------------------------------------------------------------------------------------------------------------------------------------
+							~ API SONU ~
+-------------------------------------------------------------------------------------------------------------------------------------------------
+
+MVC Projesinin verimli çalışabilmesi için arkaplanda API çalışıyor vaziyette olmalı.
+
+ASP.Net Core MVC (Model View Controller) türünde bir proje oluşturulur.
+
+Models klasörü içerisinde Product.cs isminde bir class oluşturulur.
+-Product classı içerisine API de bulunan veritabanı öğeleri girilir.
+
+        public int ID { get; set; }
+
+        public string Name { get; set; }
+
+ProductController adında Empty bir controller oluşturulur.
+
+-------------------------------------------------------------------------------------------------------------------------------------------------
+
+API den gelen verileri listelemek için;
+
+        public async Task<IActionResult> Index()
+        {
+            List<Product> productList = new List<Product>();
+            using (var httpClient = new HttpClient())
+            {
+                //API'ye bağlanmak için localhost portuna bağlanılır.
+                using(var response = await httpClient.GetAsync("https://localhost:7016/api/Product"))
+                {
+                    //Json olarak gelen veriyi string değere dönüştür.
+                    string apiResponse = await response.Content.ReadAsStringAsync(); 
+
+                    //string olarak gelen bu veriyi Product tipinde veri alan bir listeye dönüştür.
+                    productList = JsonConvert.DeserializeObject<List<Product>>(apiResponse);
+                }
+            }
+            return View(productList);
+        }
+
+(JsonConvert kodunu kullanabilmek için NugetPackageManager üzerinden Newtonsoft Json kütüphanesi indirilmeli.)
+
+Ardından Index View'ı 
+-Razor View > List > İlgiliModelsClassı şeklinde oluşturulur.
+
+-------------------------------------------------------------------------------------------------------------------------------------------------
+
+API den gelen verilerin detay sayfasını oluşturmak için;
+
+        public async Task<IActionResult> Details(int id)
+        {
+            Product product = new Product();
+            using (var httpClient = new HttpClient())
+            {
+                using (var response = await httpClient.GetAsync("https://localhost:7016/api/Product/"+id))
+                {
+                    string apiResponse = await response.Content.ReadAsStringAsync();
+
+                    //string olarak gelen bu veriyi product nesnesine dönüştürür.
+                    product = JsonConvert.DeserializeObject<Product>(apiResponse);
+                }
+            }
+            return View(product);
+        }
+
+-------------------------------------------------------------------------------------------------------------------------------------------------
+
+Veri silmek için;
+
+        public async Task<IActionResult> Delete(int id)
+        {
+            Product product = new Product();
+            using (var httpClient = new HttpClient())
+            {
+                using (var response = await httpClient.DeleteAsync("https://localhost:7016/api/Product/" + id))
+                {
+                    string x = await response.Content.ReadAsStringAsync();
+                }
+            }
+            return RedirectToAction("Index");
+        }
+
+View oluşturmadan Pop-up uyarısıyla silmek için Index.cshtml sayfasında Delete kısmına belirtilen kodlar eklenir;
+
+               @Html.ActionLink(
+                   "Delete",
+                   "Delete",
+                    new { id=item.ID },
+                    new { onclick = "return confirm ('"+item.Name+" ürününü kalıcı olarak silmek istediğine emin misin?');"})
+
+-------------------------------------------------------------------------------------------------------------------------------------------------
+
+Veri güncellemesi yapmak için;
+
+	public async Task<IActionResult> Edit(int id)
+        {
+            Product guncellenecekProduct = new Product();
+            using (var httpClient = new HttpClient())
+            {
+                using (var response = await httpClient.GetAsync("https://localhost:7016/api/Product/" + id))
+                {
+                    string apiResponse = await response.Content.ReadAsStringAsync();
+                    guncellenecekProduct = JsonConvert.DeserializeObject<Product>(apiResponse);
+                }
+            }
+            return View(guncellenecekProduct);
+        }
+
+-İlk etapta sadece inputlara veriler getiriliyor.
+-Düzenleme yapılması için Edit metodunun altına eklenecek kodlar;
+
+        [HttpPost]
+        public async Task<IActionResult> Edit(Product product)
+        {
+            using (var httpClient = new HttpClient())
+            {
+                //düzenlenecek Product sayfasındaki inputlardan girilen değerlerden
+                //bir product objesi oluşturuluyor
+                Product guncellenecekProduct = new Product()
+                {
+                    ID = product.ID,
+                    Name = product.Name,
+                };
+                //bu product objesini back-end projesindeki ilgili end pointe gönderir
+                httpClient.BaseAddress = new Uri("https://localhost:7016/");
+
+                //https://localhost:7016/api/Product adresine şöyle bir veri gider 
+                //{id:product.ID,Name:product.Name}
+
+                var response = httpClient.PutAsJsonAsync("api/Product", guncellenecekProduct).Result;
+                if (response.IsSuccessStatusCode)
+                    return RedirectToAction("Index");
+                else
+                    return NotFound();
+            }
+        }
+
+-Edit.cshtml de bulunan ID kolonu silinmelidir.
+
+-------------------------------------------------------------------------------------------------------------------------------------------------
+
+Veri eklemek için;
+
+        public ViewResult Create()
+        {
+            return View();
+        }
+
+        [HttpPost]
+        public async Task<IActionResult> Create(Product product)
+        {
+            Product eklenenProduct = new Product();
+            using (var httpClient = new HttpClient())
+            {
+		//inputlardan girilen string değeri serilize edilerek Json formatına çevrilir.
+                StringContent serializeEdilecekProduct = new StringContent(JsonConvert.SerializeObject(product),Encoding.UTF8,"application/json");
+
+		//serilize edilen Json değeri end point e gönderilir.
+                using (var response = await httpClient.PostAsync("https://localhost:7016/api/Product/",serializeEdilecekProduct))
+                {
+                }
+                return RedirectToAction("Index");
+            }
+        }
+
+-Create.cshtml de bulunan ID kolonu silinmelidir.
